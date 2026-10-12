@@ -51,9 +51,17 @@ The CrashLoopBackOff above lasted 35 ms. A poll would almost certainly miss it.
 
 ## Install
 
+Download a binary from
+[Releases](https://github.com/kevinmingtarja/k8s-time-travel/releases)
+(linux and darwin, amd64 and arm64):
+
 ```sh
-go install ./cmd/ktt
+VERSION=v0.0.1 OS=darwin ARCH=arm64
+curl -fsSL "https://github.com/kevinmingtarja/k8s-time-travel/releases/download/${VERSION}/ktt_${VERSION#v}_${OS}_${ARCH}.tar.gz" | tar xz ktt
+./ktt --version
 ```
+
+Or build from a checkout: `go install ./cmd/ktt`.
 
 ## Commands
 
@@ -186,3 +194,22 @@ cd hack && KUBEBUILDER_ASSETS=$(setup-envtest use -i -p path) go test ./e2e/ -v
 # a throwaway apiserver to try ktt by hand (context "envtest")
 cd hack && KUBEBUILDER_ASSETS=$(setup-envtest use -i -p path) go run ./envtest-up -out /tmp/envtest.kubeconfig
 ```
+
+### Releasing
+
+Push a branch named `releases/vX.Y.Z`:
+
+```sh
+git push origin main:releases/v0.0.2
+```
+
+The [`release`](.github/workflows/release.yml) workflow:
+1. Fails if that tag already exists.
+2. Runs vet and the tests.
+3. Builds linux/darwin × amd64/arm64 with [GoReleaser](https://goreleaser.com)
+   ([`.goreleaser.yaml`](.goreleaser.yaml)) into a draft GitHub release on that
+   commit.
+4. Pushes the `vX.Y.Z` tag, then publishes the release.
+
+`goreleaser release --snapshot --clean` builds the same artifacts locally into
+`dist/` without publishing anything.

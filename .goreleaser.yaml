@@ -1,0 +1,35 @@
+version: 2
+
+project_name: ktt
+
+builds:
+  - id: ktt
+    main: ./cmd/ktt
+    binary: ktt
+    env:
+      - CGO_ENABLED=0
+    # The daemon uses unix sockets, setsid and umask, so no Windows build.
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }} -X main.date={{ .Date }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - SKILL.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+
+release:
+  # Created as a draft on the exact commit being released; the workflow pushes
+  # the tag and then publishes it.
+  draft: true
+  target_commitish: "{{ .FullCommit }}"

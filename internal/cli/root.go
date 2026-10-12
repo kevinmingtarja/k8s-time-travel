@@ -36,14 +36,15 @@ func (o *rootOptions) client() (*client.Client, error) {
 	return c, c.Ensure()
 }
 
-// NewRoot builds the ktt command tree.
-func NewRoot() *cobra.Command {
+// NewRoot builds the ktt command tree. version is what --version prints.
+func NewRoot(version string) *cobra.Command {
 	o := &rootOptions{}
 	root := &cobra.Command{
-		Use:   "ktt",
-		Short: "Record Kubernetes object changes and query them back in time",
+		Use:     "ktt",
+		Version: version,
+		Short:   "Record Kubernetes object changes and query them back in time",
 		Long: `ktt records every change to selected Kubernetes objects (via list+watch) into a
-local Pebble store, so you can ask what an object looked like at any moment,
+local DB on disk, so you can ask what an object looked like at any moment,
 what changed between two moments, and when a condition first became true.
 
 A single daemon owns the store; any ktt command starts it if needed.
@@ -72,8 +73,8 @@ covers revisions received up to 15:04:05.123999999.`,
 }
 
 // Execute runs the CLI and returns the process exit code.
-func Execute() int {
-	err := NewRoot().Execute()
+func Execute(version string) int {
+	err := NewRoot(version).Execute()
 	if err == nil {
 		return 0
 	}
