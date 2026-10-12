@@ -1,5 +1,14 @@
 # ktt: Kubernetes time travel
 
+> [!WARNING]
+> ## ⚠️ This project is FULLY VIBE CODED ⚠️
+>
+> Every line of code, test and doc here was written by an AI coding agent.
+> It has unit tests, an end-to-end test against a real kube-apiserver
+> (envtest), and has been run against one live cluster. It has **not** had
+> any production use. Treat it as experimental, read the code before you
+> trust it, and don't point it at anything you can't afford to debug.
+
 `ktt` records every change to selected Kubernetes objects into a local Pebble
 store and lets you query them back in time: what an object looked like at a
 moment, what changed between two moments, when a condition first became true,
