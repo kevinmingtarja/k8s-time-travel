@@ -9,8 +9,8 @@
 > any production use. Treat it as experimental, read the code before you
 > trust it, and don't point it at anything you can't afford to debug.
 
-`ktt` records every change to selected Kubernetes objects into a local Pebble
-store and lets you query them back in time: what an object looked like at a
+`ktt` records every change to selected Kubernetes objects into a local DB on
+disk and lets you query them back in time: what an object looked like at a
 moment, what changed between two moments, when a condition first became true,
 and wait for a condition without missing states that only lasted milliseconds.
 
@@ -107,12 +107,12 @@ exactly this.
 ```
  ktt CLI ──HTTP over unix socket──▶ ktt daemon ──list+watch──▶ kube-apiserver
                                     │
-                                    └── Pebble (~/.ktt/db)
+                                    └── local DB (~/.ktt/db)
 ```
 
-- **One daemon.** Pebble allows one process per store, and recording has to
-  outlive any single CLI call, so a daemon owns both. Every command starts it
-  if it isn't running (log: `~/.ktt/daemon.log`, override with `KTT_HOME`).
+- **One daemon.** Recording has to outlive any single CLI call, and only one
+  process can open the DB, so a daemon owns both. Every command starts it if
+  it isn't running (log: `~/.ktt/daemon.log`, override with `KTT_HOME`).
 - **Recording.** Each recording lists and then watches through the dynamic
   client, with bookmarks. Every ADDED/MODIFIED/DELETED event becomes a stored
   revision holding the full object, stamped with the time the daemon received
@@ -124,16 +124,11 @@ exactly this.
   changed into revisions marked `[list]`. Objects missing from the relist get a
   synthesized DELETED. Queries print overlapping gaps, so "no change recorded"
   is never shown when the honest answer is "unknown".
-- **Keyspace.** `o/<ctx>\0<gvr>\0<ns>\0<name>\0<ts>` holds revisions grouped by
-  object (point-in-time lookups use one `SeekLT` per object).
-  `l/<ts>` is a time index for range scans. `v/<object><rv>` indexes every
-  stored (resourceVersion, deleted) pair, so when overlapping recordings
-  (say `pods -n ns` and `pods -A`) deliver the same event, the first copy
-  wins and later copies are dropped, even if they arrive after a newer
-  revision. `g/…` holds gaps and `r/<id>` holds recordings. Timestamps are strictly increasing across the store, so
-  they double as a cursor (this is how `wait` tails without missing anything).
-  An object's identity is (context, resource, namespace, name), so history
-  spans deletion and same-name recreation.
+- **Identity.** An object is identified by (context, resource, namespace,
+  name), so its history spans deletion and same-name recreation.
+- **Dedup.** When overlapping recordings (say `pods -n ns` and `pods -A`)
+  deliver the same event, the first copy wins and later copies are dropped,
+  even if they arrive after a newer revision.
 - **Diffs** match list elements by `name` or `type`
   (`status.conditions[type=Ready].status`) and skip `resourceVersion` and
   `managedFields`. ktt names who made a change ("by kubelet/status") from the
@@ -160,7 +155,25 @@ exactly this.
   whose `involvedObject.uid` belongs to a recorded object, so leftover Events
   about an earlier object with the same name don't show up. Events found by
   the initial list are marked `[list: last seen <time>]`.
-- The store only grows. To reset: `ktt shutdown && rm -rf ~/.ktt`.
+- The DB only grows. To reset: `ktt stop --all && ktt shutdown && rm -rf ~/.ktt`.
+
+## Storage
+
+The local DB is [Pebble](https://github.com/cockroachdb/pebble), the embedded
+key-value store from CockroachDB, at `~/.ktt/db`. Its keys:
+
+- `r/<id>`: a recording.
+- `o/<ctx>\0<gvr>\0<ns>\0<name>\0<ts>`: a revision (the full object), grouped
+  by object. A point-in-time lookup is one `SeekLT` per object.
+- `l/<ts>`: a time index, for range scans across objects.
+- `v/<object><rv>\0<L or D>`: every stored (resourceVersion, deleted) pair,
+  used for dedup.
+- `g/<ctx>\0<gvr>\0<start><id>`: a gap.
+
+Timestamps are big-endian unix nanoseconds, strictly increasing across the
+whole DB, so they double as a cursor: `wait` tails new revisions with
+`after=<last ts>` without missing any. Commits don't wait for fsync, so a
+crash can lose the most recent writes.
 
 ## Development
 
