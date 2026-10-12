@@ -1,0 +1,166 @@
+# ktt: Kubernetes time travel
+
+`ktt` records every change to selected Kubernetes objects into a local Pebble
+store and lets you query them back in time: what an object looked like at a
+moment, what changed between two moments, when a condition first became true,
+and wait for a condition without missing states that only lasted milliseconds.
+
+It exists because `kubectl get` is a snapshot. Read one second too late and
+the CrashLoopBackOff, the re-added finalizer, or the brief `Failed` phase is
+gone, and an agent (or a human) concludes the wrong thing.
+
+```console
+$ ktt record pods --context envtest -n default -l app=web
+recording 6a62c274: v1/pods in default -l app=web on envtest (1 revisions so far)
+recording e20884c0: v1/events in default --field-selector involvedObject.kind=Pod on envtest (0 revisions so far)
+
+$ ktt history pod/web-0          # abridged; real output from a run against envtest
+2026-10-12T15:49:21.734  MODIFIED  pod default/web-0  rv=220  by kubectl-patch/status
+    ~ status.containerStatuses[name=main].ready: true → false
+    ~ status.containerStatuses[name=main].restartCount: 0 → 1
+    - status.containerStatuses[name=main].state.running: {"startedAt":"2026-10-12T22:49:00Z"}
+    + status.containerStatuses[name=main].state.waiting: {"message":"back-off 10s restarting failed container","reason":"CrashLoopBackOff"}
+2026-10-12T15:49:21.769  MODIFIED  pod default/web-0  rv=221
+    ~ status.containerStatuses[name=main].ready: false → true
+    + status.containerStatuses[name=main].state.running: {"startedAt":"2026-10-12T22:49:02Z"}
+    - status.containerStatuses[name=main].state.waiting: {"message":"back-off 10s restarting failed container","reason":"CrashLoopBackOff"}
+2026-10-12T15:49:21.829  EVENT     pod default/web-0  Warning BackOff (kubelet): Back-off restarting failed container main in pod web-0
+2026-10-12T15:49:22.893  MODIFIED  pod default/web-0  rv=223  by kubectl-patch
+    + metadata.finalizers: ["example.com/hold"]
+2026-10-12T15:49:22.929  MODIFIED  pod default/web-0  rv=224
+    + metadata.deletionGracePeriodSeconds: 0
+    + metadata.deletionTimestamp: "2026-10-12T22:49:22Z"
+2026-10-12T15:49:23.978  DELETED   pod default/web-0  rv=225  Terminating Running (restarts=1)
+2026-10-12T15:49:25.089  ADDED     pod default/web-0  rv=226  by kubectl-client-side-apply  (recreated: new uid)  Pending
+
+$ ktt when pod/web-0 'object.?status.?containerStatuses.orValue([]).exists(c, c.?state.?waiting.?reason.orValue("") == "CrashLoopBackOff")'
+2026-10-12T15:49:21.734  true   pod default/web-0  (MODIFIED rv=220)  Running (CrashLoopBackOff, restarts=1)
+2026-10-12T15:49:21.769  false  pod default/web-0  (MODIFIED rv=221)  Running (restarts=1)
+```
+
+The CrashLoopBackOff above lasted 35 ms. A poll would almost certainly miss it.
+
+## Install
+
+```sh
+go install ./cmd/ktt
+```
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `ktt record <resource> --context C [-n ns \| -A] [-l sel] [--field-selector fs] [--events=false]` | Start recording. `--context` is required. Recording the same selection again is a no-op. |
+| `ktt ls` | List recordings, their state, last sync, and revision count. |
+| `ktt stop <id>... \| --all` | Stop recordings. Their data stays queryable. |
+| `ktt history [resource[/name]] [--since T] [--until T] [-o json]` | Every revision as a field-level diff, with Events and gaps interleaved. |
+| `ktt at <T> [resource[/name]] [-o yaml\|json]` | Objects as they were at `T`. |
+| `ktt diff <T1> <T2> [resource[/name]]` | Net change per object, with the number of revisions in between, so a change that was reverted still shows up. |
+| `ktt when <resource[/name]> <predicate> [--first]` | Each time a CEL predicate became true or false. Exit 0 if it was ever true, 1 if never. |
+| `ktt wait <resource/name> --for <predicate> [--fail-on <predicate>] [--timeout D]` | Block until a condition holds. Exit 0 on `--for`, 1 on `--fail-on`, 2 on error, 124 on timeout. |
+| `ktt shutdown` | Stop the daemon. Recordings resume (with a gap) when it next starts. |
+
+Resources resolve the way kubectl does, including short names and CRDs: `po`,
+`deploy`, `deployments.apps`, `apps/v1/deployments`, `wd` (a CRD short name).
+Query commands match against what has been recorded, so they don't contact
+the cluster.
+
+Times can be RFC3339, local time as ktt prints it
+(`2026-10-12T15:04:05.123`, `15:04:05`), relative (`-30s`, `-5m`), or `now`.
+A printed time covers its whole precision window, so `ktt at 15:04:05.123`
+includes a revision printed as `15:04:05.123`.
+
+### Predicates
+
+`when` and `wait` take CEL over `object` (the recorded object; JSON integers
+become ints) and `deleted` (true on the revision that records a deletion).
+A field that is missing is an error in CEL, so guard it with optional syntax:
+
+```sh
+ktt wait pod/web-0 \
+  --for 'object.?status.?phase.orValue("") == "Running"' \
+  --fail-on 'deleted || object.?status.?containerStatuses.orValue([]).exists(c,
+      c.?state.?waiting.?reason.orValue("") in ["CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull"])'
+
+ktt when pods -n default 'object.metadata.?finalizers.orValue([]).size() > 0' --first
+```
+
+A revision on which the predicate errors counts as false. ktt reports how many
+revisions errored, and the first error.
+
+`wait` evaluates both predicates on **every** recorded revision in order, not
+on a periodic snapshot. A `--fail-on` state that lasted 1 ms, with the `--for`
+state reached right after, still fails the wait. The end-to-end test checks
+exactly this.
+
+## How it works
+
+```
+ ktt CLI ──HTTP over unix socket──▶ ktt daemon ──list+watch──▶ kube-apiserver
+                                    │
+                                    └── Pebble (~/.ktt/db)
+```
+
+- **One daemon.** Pebble allows one process per store, and recording has to
+  outlive any single CLI call, so a daemon owns both. Every command starts it
+  if it isn't running (log: `~/.ktt/daemon.log`, override with `KTT_HOME`).
+- **Recording.** Each recording lists and then watches through the dynamic
+  client, with bookmarks. Every ADDED/MODIFIED/DELETED event becomes a stored
+  revision holding the full object, stamped with the time the daemon received
+  it. A stream that closes cleanly is resumed from its last resourceVersion,
+  so nothing is lost.
+- **Gaps.** Any watch error (including 410 Gone), a daemon restart, or
+  restarting a stopped recording triggers a relist. ktt records a **gap** from
+  the last moment it was known to be in sync to the relist, and turns whatever
+  changed into revisions marked `[list]`. Objects missing from the relist get a
+  synthesized DELETED. Queries print overlapping gaps, so "no change recorded"
+  is never shown when the honest answer is "unknown".
+- **Keyspace.** `o/<ctx>\0<gvr>\0<ns>\0<name>\0<ts>` holds revisions grouped by
+  object (point-in-time lookups use one `SeekLT` per object).
+  `l/<ts>` is a time index for range scans. `v/<object><rv>` indexes every
+  stored (resourceVersion, deleted) pair, so when overlapping recordings
+  (say `pods -n ns` and `pods -A`) deliver the same event, the first copy
+  wins and later copies are dropped, even if they arrive after a newer
+  revision. `g/…` holds gaps and `r/<id>` holds recordings. Timestamps are strictly increasing across the store, so
+  they double as a cursor (this is how `wait` tails without missing anything).
+  An object's identity is (context, resource, namespace, name), so history
+  spans deletion and same-name recreation.
+- **Diffs** match list elements by `name` or `type`
+  (`status.conditions[type=Ready].status`) and skip `resourceVersion` and
+  `managedFields`. ktt names who made a change ("by kubelet/status") from the
+  managedFields entries that are new or have a new timestamp.
+
+## Limits
+
+- ktt only knows about writes the apiserver committed and delivered on the
+  watch, not every state the system went through. For example, if a container
+  crashes and restarts between two kubelet status updates, all you see is
+  `restartCount` going up.
+- Nothing from before `ktt record` is known. Queries say when a time falls
+  before a recording started.
+- Timestamps are when the daemon received each change, not when the server
+  wrote it. They are typically milliseconds late, and seconds late under heavy
+  load.
+- A gap starts at the last event or bookmark, or at shutdown if the daemon
+  stopped cleanly, so it can be wider than the real outage. That errs on the
+  side of saying "unknown".
+- managedFields timestamps have one-second resolution, so a second write by
+  the same manager within one second shows no "by".
+- With `--events`, ktt records every Event about that kind in the namespace
+  (the API can't filter Events by label). `history` shows only the Events
+  whose `involvedObject.uid` belongs to a recorded object, so leftover Events
+  about an earlier object with the same name don't show up. Events found by
+  the initial list are marked `[list: last seen <time>]`.
+- The store only grows. To reset: `ktt shutdown && rm -rf ~/.ktt`.
+
+## Development
+
+```sh
+go test ./...                      # unit tests (store, recorder with a fake client, diff, time parsing)
+
+# end-to-end: the built binary against a real kube-apiserver + etcd (envtest)
+cd hack && KUBEBUILDER_ASSETS=$(setup-envtest use -i -p path) go test ./e2e/ -v
+
+# a throwaway apiserver to try ktt by hand (context "envtest")
+cd hack && KUBEBUILDER_ASSETS=$(setup-envtest use -i -p path) go run ./envtest-up -out /tmp/envtest.kubeconfig
+```
