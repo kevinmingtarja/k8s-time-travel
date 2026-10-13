@@ -1,11 +1,11 @@
 version: 2
 
-project_name: ktt
+project_name: kubectl-timeline
 
 builds:
-  - id: ktt
-    main: ./cmd/ktt
-    binary: ktt
+  - id: kubectl-timeline
+    main: ./cmd/kubectl-timeline
+    binary: kubectl-timeline
     env:
       - CGO_ENABLED=0
     # The daemon uses unix sockets, setsid and umask, so no Windows build.

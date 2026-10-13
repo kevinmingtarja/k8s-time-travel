@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/kevinmingtarja/k8s-time-travel/internal/api"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/client"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/server"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/api"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/client"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/server"
 )
 
 func newDaemonCmd(o *rootOptions) *cobra.Command {
@@ -62,17 +62,17 @@ func newRecordCmd(o *rootOptions) *cobra.Command {
 		Use:   "record <resource> --context <ctx> [-n ns | -A] [-l selector]",
 		Short: "Start recording every change to the selected objects",
 		Long: `Start recording a resource. The daemon lists the objects, then watches them,
-storing every revision. Recording continues until 'ktt stop', across daemon
+storing every revision. Recording continues until 'kubectl timeline stop', across daemon
 restarts (each restart leaves a gap).
 
 With --events (default), core Events about objects of the same kind are
-recorded too and shown interleaved in 'ktt history'.
+recorded too and shown interleaved in 'kubectl timeline history'.
 
 Recording the same selection twice is a no-op that returns the existing
 recording.`,
-		Example: `  ktt record pods --context kind-dev -n default -l app=web
-  ktt record deploy --context kind-dev -A
-  ktt record nodes --context kind-dev --events=false`,
+		Example: `  kubectl timeline record pods --context kind-dev -n default -l app=web
+  kubectl timeline record deploy --context kind-dev -A
+  kubectl timeline record nodes --context kind-dev --events=false`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if spec.Context == "" {
@@ -156,7 +156,7 @@ func newLsCmd(o *rootOptions) *cobra.Command {
 				return err
 			}
 			if len(recs) == 0 {
-				fmt.Println("no recordings; start one with: ktt record <resource> --context <ctx>")
+				fmt.Println("no recordings; start one with: kubectl timeline record <resource> --context <ctx>")
 				return nil
 			}
 			now := time.Now()

@@ -1,4 +1,4 @@
-// Package e2e runs the built ktt binary against a real kube-apiserver + etcd
+// Package e2e runs the built kubectl-timeline binary against a real kube-apiserver + etcd
 // from envtest. Run from hack/:
 //
 //	KUBEBUILDER_ASSETS=$(setup-envtest use -i -p path) go test ./e2e/ -v
@@ -45,23 +45,23 @@ func setup(t *testing.T) *env {
 	if err := os.WriteFile(kubeconfig, te.KubeConfig, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	bin := filepath.Join(dir, "ktt")
-	build := exec.Command("go", "build", "-o", bin, "./cmd/ktt")
+	bin := filepath.Join(dir, "kubectl-timeline")
+	build := exec.Command("go", "build", "-o", bin, "./cmd/kubectl-timeline")
 	build.Dir = "../.."
 	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build ktt: %v\n%s", err, out)
+		t.Fatalf("build kubectl-timeline: %v\n%s", err, out)
 	}
 	kube, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &env{t: t, bin: bin, kube: kube, envVars: append(os.Environ(), "KTT_HOME="+filepath.Join(dir, "home"), "KUBECONFIG="+kubeconfig)}
-	t.Cleanup(func() { e.ktt("shutdown") })
+	e := &env{t: t, bin: bin, kube: kube, envVars: append(os.Environ(), "KUBE_TIMELINE_HOME="+filepath.Join(dir, "home"), "KUBECONFIG="+kubeconfig)}
+	t.Cleanup(func() { e.run("shutdown") })
 	return e
 }
 
-// ktt runs the binary and returns combined output and exit code.
-func (e *env) ktt(args ...string) (string, int) {
+// run runs the binary and returns combined output and exit code.
+func (e *env) run(args ...string) (string, int) {
 	e.t.Helper()
 	cmd := exec.Command(e.bin, args...)
 	cmd.Env = e.envVars
@@ -72,17 +72,17 @@ func (e *env) ktt(args ...string) (string, int) {
 	if ee, ok := err.(*exec.ExitError); ok {
 		code = ee.ExitCode()
 	} else if err != nil {
-		e.t.Fatalf("ktt %v: %v", args, err)
+		e.t.Fatalf("kubectl-timeline %v: %v", args, err)
 	}
-	e.t.Logf("$ ktt %s  (exit %d)\n%s", strings.Join(args, " "), code, out.String())
+	e.t.Logf("$ kubectl timeline %s  (exit %d)\n%s", strings.Join(args, " "), code, out.String())
 	return out.String(), code
 }
 
-func (e *env) mustKtt(args ...string) string {
+func (e *env) mustRun(args ...string) string {
 	e.t.Helper()
-	out, code := e.ktt(args...)
+	out, code := e.run(args...)
 	if code != 0 {
-		e.t.Fatalf("ktt %v exited %d", args, code)
+		e.t.Fatalf("kubectl timeline %v exited %d", args, code)
 	}
 	return out
 }
@@ -121,7 +121,7 @@ func TestTransientStateAndRestartGap(t *testing.T) {
 	if _, err := e.kube.CoreV1().Pods("default").Create(ctx, pod, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	out := e.mustKtt("record", "pods", "--context", "envtest", "-n", "default", "-l", "app=web")
+	out := e.mustRun("record", "pods", "--context", "envtest", "-n", "default", "-l", "app=web")
 	contains(t, out, "v1/pods in default -l app=web on envtest", "v1/events in default --field-selector involvedObject.kind=Pod")
 
 	// A wait that must fail on a CrashLoopBackOff lasting one write, even
@@ -143,29 +143,29 @@ func TestTransientStateAndRestartGap(t *testing.T) {
 	}
 	contains(t, waitOut.String(), "--fail-on matched", "CrashLoopBackOff")
 
-	out = e.mustKtt("when", "pod/web-0", isCrashLoop)
+	out = e.mustRun("when", "pod/web-0", isCrashLoop)
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) != 2 || !strings.Contains(lines[0], "true") || !strings.Contains(lines[1], "false") {
 		t.Fatalf("when = %q, want a true then a false transition", out)
 	}
 	blipStart := strings.Fields(lines[0])[0]
-	out = e.mustKtt("at", blipStart, "pod/web-0")
+	out = e.mustRun("at", blipStart, "pod/web-0")
 	contains(t, out, "CrashLoopBackOff")
-	out = e.mustKtt("history", "pod/web-0")
+	out = e.mustRun("history", "pod/web-0")
 	contains(t, out, "+ status.containerStatuses: ", "CrashLoopBackOff", "- status.containerStatuses[name=main].state.waiting")
 
 	// Restart gap: changes made while the daemon is down show up as list
 	// revisions after a GAP.
-	e.mustKtt("shutdown")
+	e.mustRun("shutdown")
 	if err := e.kube.CoreV1().Pods("default").Delete(ctx, "web-0", metav1.DeleteOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	out = e.mustKtt("history", "pod/web-0", "--since", "-5s")
-	contains(t, out, "GAP", "ktt daemon was not running", "DELETED", "[list]")
-	out = e.mustKtt("at", "now", "pod/web-0")
+	out = e.mustRun("history", "pod/web-0", "--since", "-5s")
+	contains(t, out, "GAP", "daemon was not running", "DELETED", "[list]")
+	out = e.mustRun("at", "now", "pod/web-0")
 	contains(t, out, "did not exist", "relist", "unknown earlier time")
 
-	_, code := e.ktt("when", "pod/web-0", `object.?status.?phase.orValue("") == "Failed"`)
+	_, code := e.run("when", "pod/web-0", `object.?status.?phase.orValue("") == "Failed"`)
 	if code != 1 {
 		t.Fatalf("when never-true exit = %d, want 1", code)
 	}

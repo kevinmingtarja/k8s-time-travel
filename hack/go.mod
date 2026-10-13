@@ -1,4 +1,4 @@
-module github.com/kevinmingtarja/k8s-time-travel/hack
+module github.com/kevinmingtarja/kubectl-timeline/hack
 
 go 1.26.5
 

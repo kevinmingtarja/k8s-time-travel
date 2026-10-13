@@ -1,4 +1,4 @@
-// Package server is the ktt daemon: the single process that owns the Pebble
+// Package server is the kubectl-timeline daemon: the single process that owns the Pebble
 // store, runs recorders, and answers queries over a unix socket.
 package server
 
@@ -31,9 +31,9 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/kevinmingtarja/k8s-time-travel/internal/api"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/recorder"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/store"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/api"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/recorder"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/store"
 )
 
 // maxSocketPath is the usable length of a unix socket path (sun_path is 104
@@ -43,7 +43,7 @@ const maxSocketPath = 103
 // SocketPath is where the daemon listens: inside home, or under /tmp when
 // that path is too long for a unix socket.
 func SocketPath(home string) string {
-	p := filepath.Join(home, "ktt.sock")
+	p := filepath.Join(home, "timeline.sock")
 	if len(p) <= maxSocketPath {
 		return p
 	}
@@ -52,7 +52,7 @@ func SocketPath(home string) string {
 		abs = home
 	}
 	h := sha256.Sum256([]byte(abs))
-	return filepath.Join("/tmp", fmt.Sprintf("ktt-%d-%s.sock", os.Getuid(), hex.EncodeToString(h[:6])))
+	return filepath.Join("/tmp", fmt.Sprintf("kube-timeline-%d-%s.sock", os.Getuid(), hex.EncodeToString(h[:6])))
 }
 
 type cluster struct {
@@ -86,7 +86,7 @@ func Run(home string) error {
 	logger := log.New(os.Stderr, "", log.LstdFlags|log.Lmicroseconds)
 	st, err := store.Open(filepath.Join(home, "db"))
 	if err != nil {
-		return fmt.Errorf("open store (is another ktt daemon running?): %w", err)
+		return fmt.Errorf("open store (is another kubectl-timeline daemon running?): %w", err)
 	}
 	defer st.Close()
 
@@ -129,7 +129,7 @@ func Run(home string) error {
 		defer cancel()
 		srv.Shutdown(ctx)
 	}()
-	logger.Printf("ktt daemon pid=%d listening on %s", os.Getpid(), sock)
+	logger.Printf("kubectl-timeline daemon pid=%d listening on %s", os.Getpid(), sock)
 	err = srv.Serve(ln)
 
 	d.mu.Lock()
@@ -167,7 +167,7 @@ func (d *Daemon) resume() {
 			continue
 		}
 		d.recorders[rec.ID] = r
-		r.Resume(rec.LastSync, "ktt daemon was not running")
+		r.Resume(rec.LastSync, "daemon was not running")
 		d.log.Printf("%s: resuming %s", rec.ID, describe(rec))
 	}
 }
@@ -206,7 +206,7 @@ func (d *Daemon) cluster(kubeconfig []string, context string) (*cluster, error) 
 	if err != nil {
 		return nil, err
 	}
-	cfg.UserAgent = "ktt"
+	cfg.UserAgent = "kubectl-timeline"
 	dyn, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		return nil, err

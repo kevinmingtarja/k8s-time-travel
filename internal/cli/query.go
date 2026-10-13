@@ -15,10 +15,10 @@ import (
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
 
-	"github.com/kevinmingtarja/k8s-time-travel/internal/api"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/client"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/render"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/store"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/api"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/client"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/render"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/store"
 )
 
 const valueLimit = 200
@@ -56,9 +56,9 @@ func newHistoryCmd(o *rootOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "history [resource[/name]]",
 		Short: "Show every recorded revision as a field-level diff, with Events and gaps interleaved",
-		Example: `  ktt history pod/web-0
-  ktt history pods -n default --since -10m
-  ktt history deploy/web --since 15:04:00 --until 15:05:00 -o json`,
+		Example: `  kubectl timeline history pod/web-0
+  kubectl timeline history pods -n default --since -10m
+  kubectl timeline history deploy/web --since 15:04:00 --until 15:05:00 -o json`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := o.client()
@@ -336,8 +336,8 @@ func newAtCmd(o *rootOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "at <time> [resource[/name]]",
 		Short: "Show recorded objects as they were at a point in time",
-		Example: `  ktt at 15:04:05.123 pods -n default
-  ktt at -2m pod/web-0 -o yaml`,
+		Example: `  kubectl timeline at 15:04:05.123 pods -n default
+  kubectl timeline at -2m pod/web-0 -o yaml`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, at, err := parseTime(args[0], time.Now())
@@ -444,7 +444,7 @@ func absence(c *client.Client, t *target, at int64) (string, error) {
 		// Only DELETED revisions can remain here, since nothing was live.
 		for _, r := range st.Revisions {
 			if r.Source == api.SourceList {
-				return fmt.Sprintf("%s did not exist at %s: a relist at %s found it gone; it was deleted at an unknown earlier time (see the GAP in 'ktt history')", t.label(r, false), fmtTS(at), fmtTS(r.TS)), nil
+				return fmt.Sprintf("%s did not exist at %s: a relist at %s found it gone; it was deleted at an unknown earlier time (see the GAP in 'kubectl timeline history')", t.label(r, false), fmtTS(at), fmtTS(r.TS)), nil
 			}
 			return fmt.Sprintf("%s did not exist at %s: deleted at %s", t.label(r, false), fmtTS(at), fmtTS(r.TS)), nil
 		}
@@ -470,9 +470,9 @@ func newDiffCmd(o *rootOptions) *cobra.Command {
 		Short: "Show the net change between two times, and how many revisions happened in between",
 		Long: `Show the net change of each object between t1 and t2. Objects that changed
 and changed back still appear, with their revision count, because the net diff
-hides transient states; use 'ktt history' to see every intermediate revision.`,
-		Example: `  ktt diff 15:04:00 15:05:00 pods -n default
-  ktt diff -10m now deploy/web`,
+hides transient states; use 'kubectl timeline history' to see every intermediate revision.`,
+		Example: `  kubectl timeline diff 15:04:00 15:05:00 pods -n default
+  kubectl timeline diff -10m now deploy/web`,
 		Args: cobra.RangeArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			now := time.Now()
@@ -586,7 +586,7 @@ hides transient states; use 'ktt history' to see every intermediate revision.`,
 			if printed == 0 {
 				fmt.Printf("no changes between %s and %s\n", fmtTS(t1), fmtTS(t2))
 			} else if transient {
-				fmt.Println("# intermediate states are not shown; run 'ktt history' to see every revision")
+				fmt.Println("# intermediate states are not shown; run 'kubectl timeline history' to see every revision")
 			}
 			return nil
 		},

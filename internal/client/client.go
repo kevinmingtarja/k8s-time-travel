@@ -1,4 +1,4 @@
-// Package client talks to the ktt daemon over its unix socket, starting the
+// Package client talks to the kubectl-timeline daemon over its unix socket, starting the
 // daemon if it is not running.
 package client
 
@@ -18,9 +18,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kevinmingtarja/k8s-time-travel/internal/api"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/server"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/store"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/api"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/server"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/store"
 )
 
 type Client struct {
@@ -77,7 +77,7 @@ func (c *Client) Ensure() error {
 		case <-time.After(50 * time.Millisecond):
 		}
 		if p, err := c.Ping(); err == nil {
-			fmt.Fprintf(os.Stderr, "ktt: started daemon (pid %d, log %s)\n", p.PID, logPath)
+			fmt.Fprintf(os.Stderr, "kubectl-timeline: started daemon (pid %d, log %s)\n", p.PID, logPath)
 			return nil
 		}
 	}
@@ -92,7 +92,7 @@ func (c *Client) do(method, path string, q url.Values, body, out any) error {
 		}
 		rd = bytes.NewReader(b)
 	}
-	u := "http://ktt" + path
+	u := "http://daemon" + path
 	if len(q) > 0 {
 		u += "?" + q.Encode()
 	}

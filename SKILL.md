@@ -1,8 +1,7 @@
 ---
-name: k8s-time-travel
+name: kubectl-timeline
 description: >
-  Record every change to selected Kubernetes objects with `ktt` (k8s time
-  travel) and query it back in time: each revision as a field diff with Events
+  Record every change to selected Kubernetes objects with `kubectl timeline` and query it back in time: each revision as a field diff with Events
   interleaved, an object's state at any moment, the net diff between two
   moments, when a CEL predicate became true, and a `wait` that cannot miss a
   state lasting milliseconds. Use whenever a `kubectl get` snapshot is not
@@ -16,40 +15,40 @@ description: >
   time", "capture state transitions", "is the controller re-adding it", "what
   state was X in at T", "did it ever go Failed", "why was this workload
   pending/preempted", "wait until the pod is Running", "Terminating forever",
-  "time travel", "ktt".
+  "time travel", "kubectl timeline".
 ---
 
-# Kubernetes time travel: `ktt`
+# kubectl-timeline: Kubernetes time travel
 
 ## Core idea
 
 `kubectl get` shows the state *now*. It can't tell you that a finalizer was
 removed at T and re-added at T+50ms, or that a pod was in CrashLoopBackOff for
-35ms between two of your reads. `ktt` runs a local daemon that lists and then
+35ms between two of your reads. `kubectl-timeline` runs a local daemon that lists and then
 watches the objects you select, and stores **every committed write** as a
 revision (the full object, stamped with when it was received) in a local
 Pebble DB. You query that timeline afterwards, or while the repro is still
 running, without polling the cluster.
 
-- Install it from a checkout of this repo with `go install ./cmd/ktt`, then
-  check with `command -v ktt`.
-- State: `~/.ktt/` holds `db/` (Pebble), `daemon.log`, and `ktt.sock`.
-  Override with `KTT_HOME` or `--home`.
-- The daemon starts automatically on the first `ktt` command and resumes its
+- Install it from a checkout of this repo with `go install ./cmd/kubectl-timeline`, and put it on your
+  PATH; `kubectl plugin list` should show `kubectl-timeline`.
+- State: `~/.kube-timeline/` holds `db/` (Pebble), `daemon.log`, and `timeline.sock`.
+  Override with `KUBE_TIMELINE_HOME` or `--home`.
+- The daemon starts automatically on the first `kubectl timeline` command and resumes its
   recordings after a restart.
 
-**Record first, then reproduce.** ktt knows nothing from before `ktt record`.
+**Record first, then reproduce.** kubectl-timeline knows nothing from before `kubectl timeline record`.
 
 ## Recipe
 
 1. **Record.** The command returns immediately, so no background task is
    needed.
    ```bash
-   ktt record pods --context CTX -n NS -l app=web     # also records core Events about pods
-   ktt record deploy --context CTX -A                 # all namespaces
-   ktt record workloads.kueue.x-k8s.io --context CTX -n NS   # CRDs and short names resolve like kubectl
-   ktt record nodes --context CTX --events=false      # cluster-scoped; skip Events
-   ktt ls                                             # state, last sync, revision count per recording
+   kubectl timeline record pods --context CTX -n NS -l app=web           # also records core Events about pods
+   kubectl timeline record deploy --context CTX -A                       # all namespaces
+   kubectl timeline record workloads.kueue.x-k8s.io --context CTX -n NS  # CRDs and short names resolve like kubectl
+   kubectl timeline record nodes --context CTX --events=false            # cluster-scoped; skip Events
+   kubectl timeline ls                                                   # state, last sync, revision count per recording
    ```
    - `--context` is required: a kubeconfig's current context can change under
      you.
@@ -62,31 +61,31 @@ running, without polling the cluster.
 
 3. **Query.** This reads only the local store, not the cluster.
    ```bash
-   ktt history pod/web-0 -n NS                  # every revision as field diffs + Events + GAPs
-   ktt history pods -n NS --since -5m           # every recorded pod in the window
-   ktt at 15:04:05.123 pods -n NS               # table as of that moment; -o yaml for full objects
-   ktt diff 15:04:00 15:05:00 deploy/web        # net change + how many revisions in between
-   ktt when pods -n NS '<CEL>'                  # each true/false transition (exit 0 if ever true, 1 if never)
-   ktt wait pod/web-0 -n NS --for '<CEL>' --fail-on '<CEL>' --timeout 5m
+   kubectl timeline history pod/web-0 -n NS            # every revision as field diffs + Events + GAPs
+   kubectl timeline history pods -n NS --since -5m     # every recorded pod in the window
+   kubectl timeline at 15:04:05.123 pods -n NS         # table as of that moment; -o yaml for full objects
+   kubectl timeline diff 15:04:00 15:05:00 deploy/web  # net change + how many revisions in between
+   kubectl timeline when pods -n NS '<CEL>'            # each true/false transition (exit 0 if ever true, 1 if never)
+   kubectl timeline wait pod/web-0 -n NS --for '<CEL>' --fail-on '<CEL>' --timeout 5m
    ```
-   - Times can be what ktt prints (`2026-10-12T15:04:05.123`), wall time
+   - Times can be what kubectl-timeline prints (`2026-10-12T15:04:05.123`), wall time
      (`15:04:05`), relative (`-30s`), RFC3339, or `now`. A printed time covers
      its whole millisecond, so pasting a timestamp from `history` into `at`
      includes that revision.
    - Add `-o json` to `history` or `at` to feed jq or a script.
    - `--full` turns off truncation of long values.
 
-4. **Clean up.** Recordings run until you stop them, and `ktt shutdown`
+4. **Clean up.** Recordings run until you stop them, and `kubectl timeline shutdown`
    alone does not stop them (they resume when the daemon next starts).
-   - `ktt stop <id>` or `ktt stop --all` stops recording; the data stays
+   - `kubectl timeline stop <id>` or `kubectl timeline stop --all` stops recording; the data stays
      queryable.
-   - `ktt shutdown` stops the daemon.
+   - `kubectl timeline shutdown` stops the daemon.
    - The store only grows. To reset it:
-     `ktt stop --all && ktt shutdown && rm -rf ~/.ktt`.
+     `kubectl timeline stop --all && kubectl timeline shutdown && rm -rf ~/.kube-timeline`.
 
 ## In an agent loop
 
-- **Use `ktt wait` instead of hand-written polling loops.** It:
+- **Use `kubectl timeline wait` instead of hand-written polling loops.** It:
   - checks the current state first, then evaluates every revision in order,
     so a 1 ms CrashLoopBackOff still trips `--fail-on`;
   - exits 0 on `--for`, 1 on `--fail-on`, 2 on error (including a recording
@@ -140,7 +139,7 @@ higher-priority one.
 The variables are `object` (the recorded object; JSON integers are ints) and
 `deleted` (true on the revision that records a deletion). A missing field is
 an error in CEL, so guard fields with `.?field.orValue(default)`. A revision on
-which the predicate errors counts as false, and ktt prints how many errored.
+which the predicate errors counts as false, and kubectl-timeline prints how many errored.
 
 ```
 CrashLoopBackOff   object.?status.?containerStatuses.orValue([]).exists(c, c.?state.?waiting.?reason.orValue("") == "CrashLoopBackOff")
@@ -157,14 +156,14 @@ Workload queued    object.?status.?conditions.orValue([]).exists(c, c.type == "Q
 
 A typical guarded wait:
 ```bash
-ktt wait pod/web-0 -n NS \
+kubectl timeline wait pod/web-0 -n NS \
   --for 'object.?status.?containerStatuses.orValue([]).exists(c, c.ready == true)' \
   --fail-on 'deleted || object.?status.?containerStatuses.orValue([]).exists(c, c.?state.?waiting.?reason.orValue("") in ["CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull"])'
 ```
 
 ## Kueue
 
-- Record the Pods, the Workloads (`ktt record workloads.kueue.x-k8s.io`,
+- Record the Pods, the Workloads (`kubectl timeline record workloads.kueue.x-k8s.io`,
   with Events), and the ClusterQueue
   (`clusterqueues --field-selector metadata.name=…`). A plain pod's Workload
   is named `pod-<pod>-<hash>`.
@@ -187,7 +186,7 @@ ktt wait pod/web-0 -n NS \
 
 ## What not to conclude
 
-- ktt sees only writes the apiserver committed and delivered on the watch,
+- kubectl-timeline sees only writes the apiserver committed and delivered on the watch,
   not every state the system went through. For example, if a container
   crashes and restarts between two kubelet status updates, all you see is
   `restartCount` going up.
@@ -201,14 +200,14 @@ ktt wait pod/web-0 -n NS \
 - **A pod with `deletionTimestamp` set that won't disappear is held by a
   finalizer.** Controllers and operators keep their finalizers until their own
   condition is met.
-  `ktt when pod/X 'object.metadata.?finalizers.orValue([]).size() > 0'` shows
+  `kubectl timeline when pod/X 'object.metadata.?finalizers.orValue([]).size() > 0'` shows
   exactly when the finalizer was added and removed, and by whom.
 - **The default patch type, strategic-merge, is a NO-OP on the `finalizers`
   list.** `kubectl patch ... -p '{"metadata":{"finalizers":[]}}'` does **not**
   clear finalizers. Use a JSON patch,
   `[{"op":"replace","path":"/metadata/finalizers","value":[]}]`, or
   `kubectl patch --type=merge -p '{"metadata":{"finalizers":null}}'`. In
-  `ktt history`, a "remove" that didn't work shows up as no
+  `kubectl timeline history`, a "remove" that didn't work shows up as no
   `- metadata.finalizers` line after your patch.
 - **`--grace-period=0 --force` does NOT remove finalizers.** It only drops the
   grace period, so a finalizer-held pod survives a force-delete. Strip the
@@ -226,6 +225,6 @@ ktt wait pod/web-0 -n NS \
 
 If a single `kubectl get -o yaml` or `kubectl describe` already shows the stuck
 state and the cause is static (a known finalizer, an unschedulable
-nodeSelector, an image pull error), just read it. Use ktt when timing,
+nodeSelector, an image pull error), just read it. Use kubectl-timeline when timing,
 ordering, or a controller race is in play, or when you need to wait on state
 without risking a missed transition.

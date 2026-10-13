@@ -1,4 +1,4 @@
-module github.com/kevinmingtarja/k8s-time-travel
+module github.com/kevinmingtarja/kubectl-timeline
 
 go 1.26.5
 

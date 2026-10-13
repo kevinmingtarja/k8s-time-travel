@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kevinmingtarja/k8s-time-travel/internal/cli"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/cli"
 )
 
 // Set by the release build (see .goreleaser.yaml).

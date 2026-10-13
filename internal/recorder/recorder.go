@@ -26,8 +26,8 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 
-	"github.com/kevinmingtarja/k8s-time-travel/internal/api"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/store"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/api"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/store"
 )
 
 const maxBackoff = 30 * time.Second

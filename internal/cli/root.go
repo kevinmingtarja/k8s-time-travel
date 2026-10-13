@@ -1,4 +1,4 @@
-// Package cli implements the ktt command line.
+// Package cli implements the kubectl-timeline command line.
 package cli
 
 import (
@@ -12,9 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/kevinmingtarja/k8s-time-travel/internal/api"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/client"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/store"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/api"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/client"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/store"
 )
 
 // ExitError carries a specific process exit code.
@@ -36,33 +36,36 @@ func (o *rootOptions) client() (*client.Client, error) {
 	return c, c.Ensure()
 }
 
-// NewRoot builds the ktt command tree. version is what --version prints.
+// NewRoot builds the command tree. version is what --version prints.
 func NewRoot(version string) *cobra.Command {
 	o := &rootOptions{}
 	root := &cobra.Command{
-		Use:     "ktt",
+		Use:     "kubectl-timeline",
 		Version: version,
-		Short:   "Record Kubernetes object changes and query them back in time",
-		Long: `ktt records every change to selected Kubernetes objects (via list+watch) into a
+		Annotations: map[string]string{
+			cobra.CommandDisplayNameAnnotation: "kubectl timeline",
+		},
+		Short: "Record Kubernetes object changes and query them back in time",
+		Long: `kubectl timeline records every change to selected Kubernetes objects (via list+watch) into a
 local DB on disk, so you can ask what an object looked like at any moment,
 what changed between two moments, and when a condition first became true.
 
-A single daemon owns the store; any ktt command starts it if needed.
+A single daemon owns the DB; any kubectl timeline command starts it if needed.
 
 Times accept: RFC3339 ("2026-10-12T15:04:05Z"), local wall time as printed by
-ktt ("2026-10-12T15:04:05.123", "15:04:05"), relative ("-30s", "-5m"), or "now".
+kubectl timeline ("2026-10-12T15:04:05.123", "15:04:05"), relative ("-30s", "-5m"), or "now".
 A printed time includes everything printed with that time: "at 15:04:05.123"
 covers revisions received up to 15:04:05.123999999.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	home := os.Getenv("KTT_HOME")
+	home := os.Getenv("KUBE_TIMELINE_HOME")
 	if home == "" {
 		if h, err := os.UserHomeDir(); err == nil {
-			home = filepath.Join(h, ".ktt")
+			home = filepath.Join(h, ".kube-timeline")
 		}
 	}
-	root.PersistentFlags().StringVar(&o.home, "home", home, "ktt state directory (env KTT_HOME)")
+	root.PersistentFlags().StringVar(&o.home, "home", home, "state directory (env KUBE_TIMELINE_HOME)")
 	root.AddCommand(
 		newDaemonCmd(o), newShutdownCmd(o),
 		newRecordCmd(o), newLsCmd(o), newStopCmd(o),
@@ -255,7 +258,7 @@ func resolveTarget(c *client.Client, arg, namespace, context string) (*target, e
 		if len(have) > 0 {
 			msg += "; recorded: " + strings.Join(have, ", ")
 		} else {
-			msg += "; start one with: ktt record <resource> --context <ctx>"
+			msg += "; start one with: kubectl timeline record <resource> --context <ctx>"
 		}
 		return nil, errors.New(msg)
 	}

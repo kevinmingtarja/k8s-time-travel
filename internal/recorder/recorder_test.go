@@ -16,8 +16,8 @@ import (
 	dynfake "k8s.io/client-go/dynamic/fake"
 	clienttesting "k8s.io/client-go/testing"
 
-	"github.com/kevinmingtarja/k8s-time-travel/internal/api"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/store"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/api"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/store"
 )
 
 var podsGVR = schema.GroupVersionResource{Version: "v1", Resource: "pods"}
@@ -200,10 +200,10 @@ func TestResumeRelistsWithGapAndRetries(t *testing.T) {
 		}
 		return false, nil, nil
 	})
-	h.rec.Resume(42, "ktt daemon was not running")
+	h.rec.Resume(42, "daemon was not running")
 	h.waitRevisions(1)
 	gaps, _ := h.store.Gaps("c", "v1/pods", 0, math.MaxInt64)
-	if len(gaps) != 1 || gaps[0].Start != 42 || gaps[0].Reason != "ktt daemon was not running" {
+	if len(gaps) != 1 || gaps[0].Start != 42 || gaps[0].Reason != "daemon was not running" {
 		t.Fatalf("gaps = %+v", gaps)
 	}
 }

@@ -26,7 +26,7 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 
-	"github.com/kevinmingtarja/k8s-time-travel/internal/api"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/api"
 )
 
 const (

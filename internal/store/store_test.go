@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/kevinmingtarja/k8s-time-travel/internal/api"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/api"
 )
 
 func open(t *testing.T) *Store {

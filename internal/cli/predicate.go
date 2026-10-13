@@ -13,8 +13,8 @@ import (
 	"cel.dev/cel-go/cel"
 	"github.com/spf13/cobra"
 
-	"github.com/kevinmingtarja/k8s-time-travel/internal/api"
-	"github.com/kevinmingtarja/k8s-time-travel/internal/render"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/api"
+	"github.com/kevinmingtarja/kubectl-timeline/internal/render"
 )
 
 const predicateHelp = `Predicates are CEL expressions over:
@@ -27,7 +27,7 @@ Missing fields are errors in CEL; guard with has() or optional syntax:
   object.?status.?containerStatuses.orValue([]).exists(c, c.?state.?waiting.?reason.orValue("") == "CrashLoopBackOff")
   has(object.metadata.deletionTimestamp)
   object.metadata.?finalizers.orValue([]).size() == 0
-A revision on which the predicate errors counts as false; ktt reports how many
+A revision on which the predicate errors counts as false; the command reports how many
 errored and the first error.`
 
 type predicate struct {
@@ -134,8 +134,8 @@ func newWhenCmd(o *rootOptions) *cobra.Command {
 Exit status: 0 if it was ever true, 1 if never, 2 on error.
 
 ` + predicateHelp,
-		Example: `  ktt when pod/web-0 'object.status.phase == "Failed"'
-  ktt when pods -n default 'object.?status.?containerStatuses.orValue([]).exists(c, c.restartCount > 0)' --first`,
+		Example: `  kubectl timeline when pod/web-0 'object.status.phase == "Failed"'
+  kubectl timeline when pods -n default 'object.?status.?containerStatuses.orValue([]).exists(c, c.restartCount > 0)' --first`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pred, err := compilePredicate(args[1])
@@ -276,7 +276,7 @@ Exit status: 0 when --for matches, 1 when --fail-on matches, 2 on error
 (including the recording failing or stopping), 124 on timeout.
 
 ` + predicateHelp,
-		Example: `  ktt wait pod/web-0 --for 'object.?status.?phase.orValue("") == "Running"' \
+		Example: `  kubectl timeline wait pod/web-0 --for 'object.?status.?phase.orValue("") == "Running"' \
     --fail-on 'deleted || object.?status.?containerStatuses.orValue([]).exists(c, c.?state.?waiting.?reason.orValue("") in ["CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull"])'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -430,7 +430,7 @@ func recordingsHealthy(recs []api.Recording) error {
 		}
 	}
 	if !running {
-		return fmt.Errorf("no running recording covers this object (see 'ktt ls')")
+		return fmt.Errorf("no running recording covers this object (see 'kubectl timeline ls')")
 	}
 	return nil
 }

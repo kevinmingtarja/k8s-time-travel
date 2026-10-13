@@ -1,4 +1,4 @@
-// Package api holds the types shared by the ktt daemon and CLI.
+// Package api holds the types shared by the kubectl-timeline daemon and CLI.
 package api
 
 import (
